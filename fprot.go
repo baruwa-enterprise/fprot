@@ -382,7 +382,7 @@ func (c *Client) streamCmd(fn string) (err error) {
 		return
 	}
 
-	if _, err = fmt.Fprintf(c.tc.W, "%s %s %d\n", ScanStream, fn, stat); err != nil {
+	if _, err = fmt.Fprintf(c.tc.W, "%s %s %d\n", ScanStream, fn, stat.Size()); err != nil {
 		return
 	}
 
