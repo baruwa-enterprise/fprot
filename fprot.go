@@ -392,7 +392,7 @@ func (c *Client) streamCmd(fn string) (err error) {
 }
 
 // NewClient creates and returns a new instance of Client
-func NewClient(address string) (c *Client, err error) {
+func NewClient(address string) (c *Client) {
 	if address == "" {
 		address = "127.0.0.1:10200"
 	}
