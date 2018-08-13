@@ -179,9 +179,7 @@ func (c *Client) Info() (s string, err error) {
 
 // Close closes the server connection
 func (c *Client) Close() (err error) {
-	if _, err = c.basicCmd(Quit); err != nil {
-		return
-	}
+	_, err = c.basicCmd(Quit)
 
 	c.tc.Close()
 
