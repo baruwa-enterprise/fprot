@@ -272,6 +272,7 @@ func (c *Client) basicCmd(cmd Command) (r string, err error) {
 func (c *Client) fileCmd(cmd Command, p ...string) (r []*Response, err error) {
 	var sc int
 	var seen bool
+	var gerr error
 	var lineb []byte
 	var conn net.Conn
 
@@ -353,14 +354,17 @@ func (c *Client) fileCmd(cmd Command, p ...string) (r []*Response, err error) {
 		}
 
 		if rs.StatusCode&(UserError|RestrictionError|SystemError|InternalError|SkipError|DisinfectError) != 0 {
-			err = fmt.Errorf("ERROR: %s", rs.StatusCode)
-			return
+			if gerr == nil {
+				gerr = fmt.Errorf("ERROR: %s", rs.StatusCode)
+			}
 		}
 
 		if rs.StatusCode&(Infected|DisinfectError|HeuristicMatch) != 0 {
 			rs.Infected = true
 		}
 	}
+
+	err = gerr
 
 	return
 }
