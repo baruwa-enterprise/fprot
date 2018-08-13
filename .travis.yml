@@ -15,4 +15,4 @@ install:
   - make get-deps
 
 script:
-  - go test ./
+  - go test ./...
