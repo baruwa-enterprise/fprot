@@ -500,9 +500,14 @@ func (c *Client) processResponse() (r []*Response, err error) {
 }
 
 // NewClient creates and returns a new instance of Client
-func NewClient(address string) (c *Client) {
+func NewClient(address string) (c *Client, err error) {
 	if address == "" {
 		address = "127.0.0.1:10200"
+	} else {
+		if !strings.Contains(address, ":") || strings.Count(address, ":") > 1 {
+			err = fmt.Errorf("The supplied address is invalid")
+			return
+		}
 	}
 
 	c = &Client{
