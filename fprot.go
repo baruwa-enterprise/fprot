@@ -237,8 +237,7 @@ func (c *Client) ScanReader(i io.Reader) (r []*Response, err error) {
 func (c *Client) ScanDir(d string) (r []*Response, err error) {
 	var fl []string
 
-	fl, err = getFiles(d)
-	if err != nil {
+	if fl, err = getFiles(d); err != nil {
 		return
 	}
 
@@ -250,8 +249,7 @@ func (c *Client) ScanDir(d string) (r []*Response, err error) {
 func (c *Client) ScanDirStream(d string) (r []*Response, err error) {
 	var fl []string
 
-	fl, err = getFiles(d)
-	if err != nil {
+	if fl, err = getFiles(d); err != nil {
 		return
 	}
 
@@ -278,13 +276,11 @@ func (c *Client) dial() (conn net.Conn, err error) {
 }
 
 func (c *Client) basicCmd(cmd Command) (r string, err error) {
-	var l []byte
 	var conn net.Conn
 
 	c.m.Lock()
 	if c.tc == nil {
-		conn, err = c.dial()
-		if err != nil {
+		if conn, err = c.dial(); err != nil {
 			c.m.Unlock()
 			return
 		}
@@ -295,8 +291,11 @@ func (c *Client) basicCmd(cmd Command) (r string, err error) {
 
 	id := c.tc.Next()
 	c.tc.StartRequest(id)
-	fmt.Fprintf(c.tc.W, "%s\n", cmd)
-	c.tc.W.Flush()
+
+	if err = c.tc.PrintfLine("%s", cmd); err != nil {
+		return
+	}
+
 	c.tc.EndRequest(id)
 
 	c.tc.StartResponse(id)
@@ -306,19 +305,15 @@ func (c *Client) basicCmd(cmd Command) (r string, err error) {
 		return
 	}
 
-	l, err = c.tc.R.ReadBytes('\n')
-	if err != nil {
+	if r, err = c.tc.ReadLine(); err != nil {
 		return
 	}
 
 	if cmd == Help {
-		_, err = c.tc.R.ReadBytes('\n')
-		if err != nil {
+		if _, err = c.tc.ReadLine(); err != nil {
 			return
 		}
 	}
-
-	r = string(bytes.TrimRight(l, "\n"))
 
 	return
 }
@@ -336,8 +331,7 @@ func (c *Client) fileCmd(cmd Command, p ...string) (r []*Response, err error) {
 
 	c.m.Lock()
 	if c.tc == nil {
-		conn, err = c.dial()
-		if err != nil {
+		if conn, err = c.dial(); err != nil {
 			c.m.Unlock()
 			return
 		}
@@ -407,8 +401,7 @@ func (c *Client) readerCmd(i io.Reader) (r []*Response, err error) {
 
 	c.m.Lock()
 	if c.tc == nil {
-		conn, err = c.dial()
-		if err != nil {
+		if conn, err = c.dial(); err != nil {
 			c.m.Unlock()
 			return
 		}
@@ -442,8 +435,7 @@ func (c *Client) readerCmd(i io.Reader) (r []*Response, err error) {
 		return
 	}
 
-	_, err = io.Copy(c.tc.Writer.W, i)
-	if err != nil {
+	if _, err = io.Copy(c.tc.Writer.W, i); err != nil {
 		return
 	}
 	c.tc.W.Flush()
