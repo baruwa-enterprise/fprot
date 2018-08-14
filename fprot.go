@@ -115,16 +115,6 @@ func (c Command) String() (s string) {
 	return
 }
 
-// RequiresParam returns a bool to indicate if command takes a
-// file or directory as a param
-func (c Command) RequiresParam() (b bool) {
-	switch c {
-	case ScanFile, ScanStream:
-		b = true
-	}
-	return
-}
-
 // Response is the response from the server
 type Response struct {
 	Filename    string
@@ -525,6 +515,16 @@ func NewClient(address string) (c *Client) {
 }
 
 func getFiles(d string) (fl []string, err error) {
+	var stat os.FileInfo
+	if stat, err = os.Stat(d); os.IsNotExist(err) {
+		return
+	}
+
+	if !stat.IsDir() {
+		err = fmt.Errorf("The path: %s is not a directory", d)
+		return
+	}
+
 	err = filepath.Walk(d, func(path string, f os.FileInfo, err error) error {
 		if !f.IsDir() {
 			fl = append(fl, path)
