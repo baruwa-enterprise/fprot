@@ -302,7 +302,6 @@ func (c *Client) basicCmd(cmd Command) (r string, err error) {
 
 func (c *Client) fileCmd(cmd Command, p ...string) (r []*Response, err error) {
 	var n int
-	var gerr error
 	var conn net.Conn
 
 	n = len(p)
@@ -369,15 +368,13 @@ func (c *Client) fileCmd(cmd Command, p ...string) (r []*Response, err error) {
 	c.tc.EndRequest(id)
 	c.tc.StartResponse(id)
 	defer c.tc.EndResponse(id)
-	r, err, gerr = c.processResponse()
-	err = gerr
+	r, err = c.processResponse()
 
 	return
 }
 
 func (c *Client) readerCmd(i io.Reader) (r []*Response, err error) {
 	var clen int64
-	var gerr error
 	var conn net.Conn
 	var stat os.FileInfo
 
@@ -424,8 +421,7 @@ func (c *Client) readerCmd(i io.Reader) (r []*Response, err error) {
 	c.tc.EndRequest(id)
 	c.tc.StartResponse(id)
 	defer c.tc.EndResponse(id)
-	r, err, gerr = c.processResponse()
-	err = gerr
+	r, err = c.processResponse()
 
 	return
 }
@@ -456,9 +452,10 @@ func (c *Client) streamCmd(fn string) (err error) {
 	return
 }
 
-func (c *Client) processResponse() (r []*Response, err, gerr error) {
+func (c *Client) processResponse() (r []*Response, err error) {
 	var sc int
 	var seen bool
+	var gerr error
 	var lineb []byte
 
 	r = make([]*Response, 1)
@@ -506,6 +503,8 @@ func (c *Client) processResponse() (r []*Response, err, gerr error) {
 			rs.Infected = true
 		}
 	}
+
+	err = gerr
 
 	return
 }
