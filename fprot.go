@@ -10,11 +10,13 @@ Fprot - Golang F-Prot client
 package fprot
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net"
 	"net/textproto"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -62,7 +64,7 @@ const (
 )
 
 var (
-	responseRe = regexp.MustCompile(`^(?P<statuscode>[0-9]+)\s<(?P<status>[^:]+):\s+(?P<signature>.+?)>\s?(?P<filename>.+?)?(?:->(.*))?$`)
+	responseRe = regexp.MustCompile(`^(?P<statuscode>[0-9]+)\s<(?P<status>[^:]+):\s+(?P<signature>.+?)>\s?(?P<filename>.+?)?(?:->(?P<aname>.*))?$`)
 )
 
 // StatusCode represents the returned status code
@@ -125,12 +127,13 @@ func (c Command) RequiresParam() (b bool) {
 
 // Response is the response from the server
 type Response struct {
-	Filename   string
-	Signature  string
-	Status     string
-	StatusCode StatusCode
-	Infected   bool
-	Raw        string
+	Filename    string
+	ArchiveItem string
+	Signature   string
+	Status      string
+	StatusCode  StatusCode
+	Infected    bool
+	Raw         string
 }
 
 // A Client represents a Fprot client.
@@ -187,23 +190,53 @@ func (c *Client) Close() (err error) {
 }
 
 // ScanFile submits a single file for scanning
-func (c *Client) ScanFile() {
-
+func (c *Client) ScanFile(f string) (r []*Response, err error) {
+	r, err = c.fileCmd(ScanFile, f)
+	return
 }
 
 // ScanFiles submits multiple files for scanning
-func (c *Client) ScanFiles() {
-
+func (c *Client) ScanFiles(f ...string) (r []*Response, err error) {
+	r, err = c.fileCmd(ScanFile, f...)
+	return
 }
 
 // ScanStream submits a stream for scanning
-func (c *Client) ScanStream() {
+func (c *Client) ScanStream(f ...string) (r []*Response, err error) {
+	r, err = c.fileCmd(ScanStream, f...)
+	return
+}
 
+// ScanReader submits an io reader via a stream for scanning
+func (c *Client) ScanReader(i io.Reader) (r []*Response, err error) {
+	r, err = c.readerCmd(i)
+	return
 }
 
 // ScanDir submits a directory for scanning
-func (c *Client) ScanDir() {
+func (c *Client) ScanDir(d string) (r []*Response, err error) {
+	var fl []string
 
+	fl, err = getFiles(d)
+	if err != nil {
+		return
+	}
+
+	r, err = c.fileCmd(ScanFile, fl...)
+	return
+}
+
+// ScanDirStream submits a directory for scanning as streams
+func (c *Client) ScanDirStream(d string) (r []*Response, err error) {
+	var fl []string
+
+	fl, err = getFiles(d)
+	if err != nil {
+		return
+	}
+
+	r, err = c.fileCmd(ScanStream, fl...)
+	return
 }
 
 func (c *Client) dial() (conn net.Conn, err error) {
@@ -268,13 +301,13 @@ func (c *Client) basicCmd(cmd Command) (r string, err error) {
 }
 
 func (c *Client) fileCmd(cmd Command, p ...string) (r []*Response, err error) {
-	var sc int
-	var seen bool
+	var n int
 	var gerr error
-	var lineb []byte
 	var conn net.Conn
 
-	if len(p) == 0 || p[0] == "" {
+	n = len(p)
+
+	if n == 0 || p[0] == "" {
 		err = fmt.Errorf("Atleast one path to scan is required")
 		return
 	}
@@ -292,7 +325,7 @@ func (c *Client) fileCmd(cmd Command, p ...string) (r []*Response, err error) {
 	c.tc.StartRequest(id)
 
 	if cmd == ScanStream {
-		if len(p) > 1 {
+		if n > 1 {
 			if _, err = fmt.Fprintf(c.tc.W, "%s", Queue); err != nil {
 				return
 			}
@@ -311,11 +344,122 @@ func (c *Client) fileCmd(cmd Command, p ...string) (r []*Response, err error) {
 				return
 			}
 		}
+	} else if cmd == ScanFile {
+		if n > 1 {
+			if _, err = fmt.Fprintf(c.tc.W, "%s", Queue); err != nil {
+				return
+			}
+
+			for _, fn := range p {
+				if _, err = fmt.Fprintf(c.tc.W, "%s %s", ScanFile, fn); err != nil {
+					return
+				}
+			}
+
+			if _, err = fmt.Fprintf(c.tc.W, "%s", ScanQueue); err != nil {
+				return
+			}
+		} else {
+			if _, err = fmt.Fprintf(c.tc.W, "%s %s", ScanFile, p[0]); err != nil {
+				return
+			}
+		}
 	}
 
 	c.tc.EndRequest(id)
 	c.tc.StartResponse(id)
 	defer c.tc.EndResponse(id)
+	r, err, gerr = c.processResponse()
+	err = gerr
+
+	return
+}
+
+func (c *Client) readerCmd(i io.Reader) (r []*Response, err error) {
+	var clen int64
+	var gerr error
+	var conn net.Conn
+	var stat os.FileInfo
+
+	if c.tc == nil {
+		conn, err = c.dial()
+		if err != nil {
+			return
+		}
+
+		c.tc = textproto.NewConn(conn)
+	}
+
+	id := c.tc.Next()
+	c.tc.StartRequest(id)
+
+	switch v := i.(type) {
+	case *bytes.Buffer:
+		clen = int64(v.Len())
+	case *bytes.Reader:
+		clen = int64(v.Len())
+	case *strings.Reader:
+		clen = int64(v.Len())
+	case *os.File:
+		stat, err = v.Stat()
+		if err != nil {
+			return
+		}
+		clen = stat.Size()
+	default:
+		err = fmt.Errorf("The content length could not be determined")
+		return
+	}
+
+	if _, err = fmt.Fprintf(c.tc.W, "%s stream SIZE %d\n", ScanStream, clen); err != nil {
+		return
+	}
+
+	_, err = io.Copy(c.tc.Writer.W, i)
+	if err != nil {
+		return
+	}
+	c.tc.W.Flush()
+
+	c.tc.EndRequest(id)
+	c.tc.StartResponse(id)
+	defer c.tc.EndResponse(id)
+	r, err, gerr = c.processResponse()
+	err = gerr
+
+	return
+}
+
+func (c *Client) streamCmd(fn string) (err error) {
+	var f *os.File
+	var stat os.FileInfo
+
+	if f, err = os.Open(fn); err != nil {
+		return
+	}
+	defer f.Close()
+
+	if stat, err = f.Stat(); err != nil {
+		return
+	}
+
+	if _, err = fmt.Fprintf(c.tc.W, "%s %s SIZE %d\n", ScanStream, fn, stat.Size()); err != nil {
+		return
+	}
+
+	if _, err = io.Copy(c.tc.Writer.W, f); err != nil {
+		return
+	}
+
+	c.tc.W.Flush()
+
+	return
+}
+
+func (c *Client) processResponse() (r []*Response, err, gerr error) {
+	var sc int
+	var seen bool
+	var lineb []byte
 
 	r = make([]*Response, 1)
 
@@ -343,6 +487,7 @@ func (c *Client) fileCmd(cmd Command, p ...string) (r []*Response, err error) {
 		rs.Status = string(mb[2])
 		rs.Signature = string(mb[3])
 		rs.Filename = string(mb[4])
+		rs.ArchiveItem = string(mb[5])
 
 		if !seen {
 			r[0] = &rs
@@ -362,32 +507,6 @@ func (c *Client) fileCmd(cmd Command, p ...string) (r []*Response, err error) {
 		}
 	}
 
-	err = gerr
-
-	return
-}
-
-func (c *Client) streamCmd(fn string) (err error) {
-	var f *os.File
-	var stat os.FileInfo
-
-	if f, err = os.Open(fn); err != nil {
-		return
-	}
-	defer f.Close()
-
-	if stat, err = f.Stat(); err != nil {
-		return
-	}
-
-	if _, err = fmt.Fprintf(c.tc.W, "%s %s %d\n", ScanStream, fn, stat.Size()); err != nil {
-		return
-	}
-
-	if _, err = io.Copy(c.tc.Writer.W, f); err != nil {
-		return
-	}
-
 	return
 }
 
@@ -401,6 +520,20 @@ func NewClient(address string) (c *Client) {
 		address:     address,
 		connTimeout: defaultTimeout,
 		connSleep:   defaultSleep,
+	}
+
+	return
+}
+
+func getFiles(d string) (fl []string, err error) {
+	err = filepath.Walk(d, func(path string, f os.FileInfo, err error) error {
+		if !f.IsDir() {
+			fl = append(fl, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return
 	}
 
 	return
