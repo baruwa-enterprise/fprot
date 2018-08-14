@@ -39,6 +39,7 @@ var TestCommands = []CommandTestKey{
 }
 
 var TestStatusCodes = []StatusCodeTestKey{
+	{NoMatch, "No signature was matched"},
 	{Infected, "Atleast one virus-infected object was found"},
 	{HeuristicMatch, "Atleast one suspicious (heuristic match) object was found"},
 	{UserError, "Scanning interrupted by user"},

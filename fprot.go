@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -30,6 +31,8 @@ const (
 )
 
 const (
+	// NoMatch 0 No signature was matched
+	NoMatch StatusCode = 0
 	// Infected 1 Atleast one virus-infected object was found
 	Infected StatusCode = 1 << iota
 	// HeuristicMatch 2 Atleast one suspicious (heuristic match) object was found
@@ -64,7 +67,8 @@ const (
 )
 
 var (
-	responseRe = regexp.MustCompile(`^(?P<statuscode>[0-9]+)\s<(?P<status>[^:]+):\s+(?P<signature>.+?)>\s?(?P<filename>.+?)?(?:->(?P<aname>.*))?$`)
+	helpRe     = regexp.MustCompile(`^FPSCAND:(?P<version>\S+)\s*ENGINE:(?P<engine>\S+)\s*PROTOCOL:(?P<protocol>\S+)\s*SIGNATURE:(?P<sig>\S+)\s*UPTIME:(?P<uptime>\S+)$`)
+	responseRe = regexp.MustCompile(`^(?P<statuscode>[0-9]+)\s<(?P<status>[^:]+)(?::\s+(?P<signature>.+?))?>\s?(?P<filename>.+?)?(?:->(?P<aname>.*))?$`)
 )
 
 // StatusCode represents the returned status code
@@ -72,6 +76,8 @@ type StatusCode int
 
 func (c StatusCode) String() (s string) {
 	switch c {
+	case NoMatch:
+		s = "No signature was matched"
 	case Infected:
 		s = "Atleast one virus-infected object was found"
 	case HeuristicMatch:
@@ -115,6 +121,15 @@ func (c Command) String() (s string) {
 	return
 }
 
+// Info is the server information
+type Info struct {
+	Version   string
+	Engine    string
+	Protocol  string
+	Signature string
+	Uptime    string
+}
+
 // Response is the response from the server
 type Response struct {
 	Filename    string
@@ -134,6 +149,7 @@ type Client struct {
 	connSleep   time.Duration
 	cmdTimeout  time.Duration
 	tc          *textproto.Conn
+	m           sync.Mutex
 }
 
 // SetConnTimeout sets the connection timeout
@@ -162,11 +178,25 @@ func (c *Client) SetConnSleep(s time.Duration) {
 }
 
 // Info returns server information
-func (c *Client) Info() (s string, err error) {
+func (c *Client) Info() (i Info, err error) {
+	var s string
 	if s, err = c.basicCmd(Help); err != nil {
 		return
 	}
 
+	ms := helpRe.FindStringSubmatch(s)
+	if ms == nil {
+		err = fmt.Errorf("Invalid Server Response: %s", s)
+		return
+	}
+
+	i = Info{
+		Version:   string(ms[1]),
+		Engine:    string(ms[2]),
+		Protocol:  string(ms[3]),
+		Signature: string(ms[4]),
+		Uptime:    string(ms[5]),
+	}
 	return
 }
 
@@ -250,20 +280,22 @@ func (c *Client) dial() (conn net.Conn, err error) {
 func (c *Client) basicCmd(cmd Command) (r string, err error) {
 	var l []byte
 	var conn net.Conn
-	var b strings.Builder
 
+	c.m.Lock()
 	if c.tc == nil {
 		conn, err = c.dial()
 		if err != nil {
+			c.m.Unlock()
 			return
 		}
 
 		c.tc = textproto.NewConn(conn)
 	}
+	c.m.Unlock()
 
 	id := c.tc.Next()
 	c.tc.StartRequest(id)
-	fmt.Fprintf(c.tc.W, "n%s\n", cmd)
+	fmt.Fprintf(c.tc.W, "%s\n", cmd)
 	c.tc.W.Flush()
 	c.tc.EndRequest(id)
 
@@ -274,18 +306,19 @@ func (c *Client) basicCmd(cmd Command) (r string, err error) {
 		return
 	}
 
-	for {
-		l, err = c.tc.R.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				err = nil
-			}
-			break
-		}
-		fmt.Fprintf(&b, "%s", l)
+	l, err = c.tc.R.ReadBytes('\n')
+	if err != nil {
+		return
 	}
 
-	r = strings.TrimRight(b.String(), "\n")
+	if cmd == Help {
+		_, err = c.tc.R.ReadBytes('\n')
+		if err != nil {
+			return
+		}
+	}
+
+	r = string(bytes.TrimRight(l, "\n"))
 
 	return
 }
@@ -301,21 +334,24 @@ func (c *Client) fileCmd(cmd Command, p ...string) (r []*Response, err error) {
 		return
 	}
 
+	c.m.Lock()
 	if c.tc == nil {
 		conn, err = c.dial()
 		if err != nil {
+			c.m.Unlock()
 			return
 		}
 
 		c.tc = textproto.NewConn(conn)
 	}
+	c.m.Unlock()
 
 	id := c.tc.Next()
 	c.tc.StartRequest(id)
 
 	if cmd == ScanStream {
 		if n > 1 {
-			if _, err = fmt.Fprintf(c.tc.W, "%s", Queue); err != nil {
+			if err = c.tc.PrintfLine("%s", Queue); err != nil {
 				return
 			}
 
@@ -325,7 +361,7 @@ func (c *Client) fileCmd(cmd Command, p ...string) (r []*Response, err error) {
 				}
 			}
 
-			if _, err = fmt.Fprintf(c.tc.W, "%s", ScanQueue); err != nil {
+			if err = c.tc.PrintfLine("%s", ScanQueue); err != nil {
 				return
 			}
 		} else {
@@ -335,30 +371,31 @@ func (c *Client) fileCmd(cmd Command, p ...string) (r []*Response, err error) {
 		}
 	} else if cmd == ScanFile {
 		if n > 1 {
-			if _, err = fmt.Fprintf(c.tc.W, "%s", Queue); err != nil {
+			if err = c.tc.PrintfLine("%s", Queue); err != nil {
 				return
 			}
 
 			for _, fn := range p {
-				if _, err = fmt.Fprintf(c.tc.W, "%s %s", ScanFile, fn); err != nil {
+				if err = c.tc.PrintfLine("%s %s", ScanFile, fn); err != nil {
 					return
 				}
 			}
 
-			if _, err = fmt.Fprintf(c.tc.W, "%s", ScanQueue); err != nil {
+			if err = c.tc.PrintfLine("%s", ScanQueue); err != nil {
 				return
 			}
 		} else {
-			if _, err = fmt.Fprintf(c.tc.W, "%s %s", ScanFile, p[0]); err != nil {
+			if err = c.tc.PrintfLine("%s %s", ScanFile, p[0]); err != nil {
 				return
 			}
 		}
 	}
+	c.tc.W.Flush()
 
 	c.tc.EndRequest(id)
 	c.tc.StartResponse(id)
 	defer c.tc.EndResponse(id)
-	r, err = c.processResponse()
+	r, err = c.processResponse(n)
 
 	return
 }
@@ -368,14 +405,17 @@ func (c *Client) readerCmd(i io.Reader) (r []*Response, err error) {
 	var conn net.Conn
 	var stat os.FileInfo
 
+	c.m.Lock()
 	if c.tc == nil {
 		conn, err = c.dial()
 		if err != nil {
+			c.m.Unlock()
 			return
 		}
 
 		c.tc = textproto.NewConn(conn)
 	}
+	c.m.Unlock()
 
 	id := c.tc.Next()
 	c.tc.StartRequest(id)
@@ -398,7 +438,7 @@ func (c *Client) readerCmd(i io.Reader) (r []*Response, err error) {
 		return
 	}
 
-	if _, err = fmt.Fprintf(c.tc.W, "%s stream SIZE %d\n", ScanStream, clen); err != nil {
+	if err = c.tc.PrintfLine("%s stream SIZE %d", ScanStream, clen); err != nil {
 		return
 	}
 
@@ -411,7 +451,7 @@ func (c *Client) readerCmd(i io.Reader) (r []*Response, err error) {
 	c.tc.EndRequest(id)
 	c.tc.StartResponse(id)
 	defer c.tc.EndResponse(id)
-	r, err = c.processResponse()
+	r, err = c.processResponse(1)
 
 	return
 }
@@ -429,7 +469,7 @@ func (c *Client) streamCmd(fn string) (err error) {
 		return
 	}
 
-	if _, err = fmt.Fprintf(c.tc.W, "%s %s SIZE %d\n", ScanStream, fn, stat.Size()); err != nil {
+	if err = c.tc.PrintfLine("%s %s SIZE %d", ScanStream, fn, stat.Size()); err != nil {
 		return
 	}
 
@@ -442,7 +482,7 @@ func (c *Client) streamCmd(fn string) (err error) {
 	return
 }
 
-func (c *Client) processResponse() (r []*Response, err error) {
+func (c *Client) processResponse(n int) (r []*Response, err error) {
 	var sc int
 	var seen bool
 	var gerr error
@@ -450,7 +490,7 @@ func (c *Client) processResponse() (r []*Response, err error) {
 
 	r = make([]*Response, 1)
 
-	for {
+	for num := 0; num < n; num++ {
 		lineb, err = c.tc.R.ReadBytes('\n')
 		if err != nil {
 			if err == io.EOF {
@@ -459,7 +499,8 @@ func (c *Client) processResponse() (r []*Response, err error) {
 			}
 			return
 		}
-		mb := responseRe.FindSubmatch(lineb)
+
+		mb := responseRe.FindSubmatch(bytes.TrimRight(lineb, "\n"))
 		if mb == nil {
 			err = fmt.Errorf("Invalid Server Response: %s", lineb)
 			break
@@ -470,12 +511,14 @@ func (c *Client) processResponse() (r []*Response, err error) {
 		if err != nil {
 			return
 		}
+
 		rs.StatusCode = StatusCode(sc)
 		rs.Status = string(mb[2])
 		rs.Signature = string(mb[3])
 		rs.Filename = string(mb[4])
 		rs.ArchiveItem = string(mb[5])
-
+		rs.Raw = string(mb[0])
+		// fmt.Println("MB", "F", string(mb[0]), "[1]", string(mb[1]), "[2]", string(mb[2]), "[3]", string(mb[3]), "[4]", string(mb[4]), "[5]", string(mb[5]))
 		if !seen {
 			r[0] = &rs
 			seen = true
