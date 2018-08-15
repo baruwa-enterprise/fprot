@@ -276,6 +276,7 @@ func (c *Client) dial() (conn net.Conn, err error) {
 }
 
 func (c *Client) basicCmd(cmd Command) (r string, err error) {
+	var id uint
 	var conn net.Conn
 
 	c.m.Lock()
@@ -289,14 +290,9 @@ func (c *Client) basicCmd(cmd Command) (r string, err error) {
 	}
 	c.m.Unlock()
 
-	id := c.tc.Next()
-	c.tc.StartRequest(id)
-
-	if err = c.tc.PrintfLine("%s", cmd); err != nil {
+	if id, err = c.tc.Cmd("%s", cmd); err != nil {
 		return
 	}
-
-	c.tc.EndRequest(id)
 
 	c.tc.StartResponse(id)
 	defer c.tc.EndResponse(id)
@@ -344,44 +340,14 @@ func (c *Client) fileCmd(cmd Command, p ...string) (r []*Response, err error) {
 	c.tc.StartRequest(id)
 
 	if cmd == ScanStream {
-		if n > 1 {
-			if err = c.tc.PrintfLine("%s", Queue); err != nil {
-				return
-			}
-
-			for _, fn := range p {
-				if err = c.streamCmd(fn); err != nil {
-					return
-				}
-			}
-
-			if err = c.tc.PrintfLine("%s", ScanQueue); err != nil {
-				return
-			}
-		} else {
-			if err = c.streamCmd(p[0]); err != nil {
-				return
-			}
+		if err = c.streamScan(n, p...); err != nil {
+			c.tc.EndRequest(id)
+			return
 		}
 	} else if cmd == ScanFile {
-		if n > 1 {
-			if err = c.tc.PrintfLine("%s", Queue); err != nil {
-				return
-			}
-
-			for _, fn := range p {
-				if err = c.tc.PrintfLine("%s %s", ScanFile, fn); err != nil {
-					return
-				}
-			}
-
-			if err = c.tc.PrintfLine("%s", ScanQueue); err != nil {
-				return
-			}
-		} else {
-			if err = c.tc.PrintfLine("%s %s", ScanFile, p[0]); err != nil {
-				return
-			}
+		if err = c.fileScan(n, p...); err != nil {
+			c.tc.EndRequest(id)
+			return
 		}
 	}
 	c.tc.W.Flush()
@@ -390,6 +356,54 @@ func (c *Client) fileCmd(cmd Command, p ...string) (r []*Response, err error) {
 	c.tc.StartResponse(id)
 	defer c.tc.EndResponse(id)
 	r, err = c.processResponse(n)
+
+	return
+}
+
+func (c *Client) fileScan(n int, p ...string) (err error) {
+	if n > 1 {
+		if err = c.tc.PrintfLine("%s", Queue); err != nil {
+			return
+		}
+
+		for _, fn := range p {
+			if err = c.tc.PrintfLine("%s %s", ScanFile, fn); err != nil {
+				return
+			}
+		}
+
+		if err = c.tc.PrintfLine("%s", ScanQueue); err != nil {
+			return
+		}
+	} else {
+		if err = c.tc.PrintfLine("%s %s", ScanFile, p[0]); err != nil {
+			return
+		}
+	}
+
+	return
+}
+
+func (c *Client) streamScan(n int, p ...string) (err error) {
+	if n > 1 {
+		if err = c.tc.PrintfLine("%s", Queue); err != nil {
+			return
+		}
+
+		for _, fn := range p {
+			if err = c.streamCmd(fn); err != nil {
+				return
+			}
+		}
+
+		if err = c.tc.PrintfLine("%s", ScanQueue); err != nil {
+			return
+		}
+	} else {
+		if err = c.streamCmd(p[0]); err != nil {
+			return
+		}
+	}
 
 	return
 }
@@ -410,9 +424,6 @@ func (c *Client) readerCmd(i io.Reader) (r []*Response, err error) {
 	}
 	c.m.Unlock()
 
-	id := c.tc.Next()
-	c.tc.StartRequest(id)
-
 	switch v := i.(type) {
 	case *bytes.Buffer:
 		clen = int64(v.Len())
@@ -431,11 +442,16 @@ func (c *Client) readerCmd(i io.Reader) (r []*Response, err error) {
 		return
 	}
 
+	id := c.tc.Next()
+	c.tc.StartRequest(id)
+
 	if err = c.tc.PrintfLine("%s stream SIZE %d", ScanStream, clen); err != nil {
+		c.tc.EndRequest(id)
 		return
 	}
 
 	if _, err = io.Copy(c.tc.Writer.W, i); err != nil {
+		c.tc.EndRequest(id)
 		return
 	}
 	c.tc.W.Flush()
