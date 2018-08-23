@@ -35,21 +35,21 @@ const (
 	// NoMatch 0 No signature was matched
 	NoMatch StatusCode = 0
 	// Infected 1 Atleast one virus-infected object was found
-	Infected StatusCode = 1 << iota
+	Infected StatusCode = 1
 	// HeuristicMatch 2 Atleast one suspicious (heuristic match) object was found
-	HeuristicMatch
+	HeuristicMatch StatusCode = 2
 	// UserError 4 Interrupted by user
-	UserError
+	UserError StatusCode = 4
 	// RestrictionError 8 Scan restriction caused scan to skip files
-	RestrictionError
+	RestrictionError StatusCode = 8
 	// SystemError 16 Platform error
-	SystemError
+	SystemError StatusCode = 16
 	// InternalError 32 Internal engine error
-	InternalError
+	InternalError StatusCode = 32
 	// SkipError 64 Atleast one object was not scanned
-	SkipError
+	SkipError StatusCode = 64
 	// DisinfectError 128 Atleast one object was disinfected
-	DisinfectError
+	DisinfectError StatusCode = 128
 )
 
 const (
