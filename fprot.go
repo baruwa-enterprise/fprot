@@ -25,9 +25,10 @@ import (
 )
 
 const (
-	defaultTimeout = 15 * time.Second
-	defaultSleep   = 1 * time.Second
-	chunkSize      = 1024
+	defaultTimeout    = 15 * time.Second
+	defaultSleep      = 1 * time.Second
+	defaultCmdTimeout = 1 * time.Minute
+	chunkSize         = 1024
 )
 
 const (
@@ -67,6 +68,8 @@ const (
 )
 
 var (
+	// ZeroTime holds the zero value of time
+	ZeroTime   time.Time
 	helpRe     = regexp.MustCompile(`^FPSCAND:(?P<version>\S+)\s*ENGINE:(?P<engine>\S+)\s*PROTOCOL:(?P<protocol>\S+)\s*SIGNATURE:(?P<sig>\S+)\s*UPTIME:(?P<uptime>\S+)$`)
 	responseRe = regexp.MustCompile(`^(?P<statuscode>[0-9]+)\s<(?P<status>[^:]+)(?::\s+(?P<signature>.+?))?>\s?(?P<filename>.+?)?(?:->(?P<aname>.*))?$`)
 )
@@ -150,6 +153,7 @@ type Client struct {
 	cmdTimeout  time.Duration
 	tc          *textproto.Conn
 	m           sync.Mutex
+	conn        net.Conn
 }
 
 // SetConnTimeout sets the connection timeout
@@ -258,10 +262,8 @@ func (c *Client) ScanDirStream(d string) (r []*Response, err error) {
 }
 
 func (c *Client) dial() (conn net.Conn, err error) {
-	d := &net.Dialer{}
-
-	if c.connTimeout > 0 {
-		d.Timeout = c.connTimeout
+	d := &net.Dialer{
+		Timeout: c.connTimeout,
 	}
 
 	for i := 0; i <= c.connRetries; i++ {
@@ -277,19 +279,21 @@ func (c *Client) dial() (conn net.Conn, err error) {
 
 func (c *Client) basicCmd(cmd Command) (r string, err error) {
 	var id uint
-	var conn net.Conn
 
 	c.m.Lock()
 	if c.tc == nil {
-		if conn, err = c.dial(); err != nil {
+		if c.conn, err = c.dial(); err != nil {
 			c.m.Unlock()
 			return
 		}
 
-		c.tc = textproto.NewConn(conn)
+		c.tc = textproto.NewConn(c.conn)
 	}
 	c.m.Unlock()
 
+	defer c.conn.SetDeadline(ZeroTime)
+
+	c.conn.SetDeadline(time.Now().Add(c.cmdTimeout))
 	if id, err = c.tc.Cmd("%s", cmd); err != nil {
 		return
 	}
@@ -301,11 +305,13 @@ func (c *Client) basicCmd(cmd Command) (r string, err error) {
 		return
 	}
 
+	c.conn.SetDeadline(time.Now().Add(c.cmdTimeout))
 	if r, err = c.tc.ReadLine(); err != nil {
 		return
 	}
 
 	if cmd == Help {
+		c.conn.SetDeadline(time.Now().Add(c.cmdTimeout))
 		if _, err = c.tc.ReadLine(); err != nil {
 			return
 		}
@@ -316,7 +322,6 @@ func (c *Client) basicCmd(cmd Command) (r string, err error) {
 
 func (c *Client) fileCmd(cmd Command, p ...string) (r []*Response, err error) {
 	var n int
-	var conn net.Conn
 
 	n = len(p)
 
@@ -327,14 +332,16 @@ func (c *Client) fileCmd(cmd Command, p ...string) (r []*Response, err error) {
 
 	c.m.Lock()
 	if c.tc == nil {
-		if conn, err = c.dial(); err != nil {
+		if c.conn, err = c.dial(); err != nil {
 			c.m.Unlock()
 			return
 		}
 
-		c.tc = textproto.NewConn(conn)
+		c.tc = textproto.NewConn(c.conn)
 	}
 	c.m.Unlock()
+
+	defer c.conn.SetDeadline(ZeroTime)
 
 	id := c.tc.Next()
 	c.tc.StartRequest(id)
@@ -362,20 +369,24 @@ func (c *Client) fileCmd(cmd Command, p ...string) (r []*Response, err error) {
 
 func (c *Client) fileScan(n int, p ...string) (err error) {
 	if n > 1 {
+		c.conn.SetDeadline(time.Now().Add(c.cmdTimeout))
 		if err = c.tc.PrintfLine("%s", Queue); err != nil {
 			return
 		}
 
 		for _, fn := range p {
+			c.conn.SetDeadline(time.Now().Add(c.cmdTimeout))
 			if err = c.tc.PrintfLine("%s %s", ScanFile, fn); err != nil {
 				return
 			}
 		}
 
+		c.conn.SetDeadline(time.Now().Add(c.cmdTimeout))
 		if err = c.tc.PrintfLine("%s", ScanQueue); err != nil {
 			return
 		}
 	} else {
+		c.conn.SetDeadline(time.Now().Add(c.cmdTimeout))
 		if err = c.tc.PrintfLine("%s %s", ScanFile, p[0]); err != nil {
 			return
 		}
@@ -386,6 +397,7 @@ func (c *Client) fileScan(n int, p ...string) (err error) {
 
 func (c *Client) streamScan(n int, p ...string) (err error) {
 	if n > 1 {
+		c.conn.SetDeadline(time.Now().Add(c.cmdTimeout))
 		if err = c.tc.PrintfLine("%s", Queue); err != nil {
 			return
 		}
@@ -396,6 +408,7 @@ func (c *Client) streamScan(n int, p ...string) (err error) {
 			}
 		}
 
+		c.conn.SetDeadline(time.Now().Add(c.cmdTimeout))
 		if err = c.tc.PrintfLine("%s", ScanQueue); err != nil {
 			return
 		}
@@ -410,19 +423,20 @@ func (c *Client) streamScan(n int, p ...string) (err error) {
 
 func (c *Client) readerCmd(i io.Reader) (r []*Response, err error) {
 	var clen int64
-	var conn net.Conn
 	var stat os.FileInfo
 
 	c.m.Lock()
 	if c.tc == nil {
-		if conn, err = c.dial(); err != nil {
+		if c.conn, err = c.dial(); err != nil {
 			c.m.Unlock()
 			return
 		}
 
-		c.tc = textproto.NewConn(conn)
+		c.tc = textproto.NewConn(c.conn)
 	}
 	c.m.Unlock()
+
+	defer c.conn.SetDeadline(ZeroTime)
 
 	switch v := i.(type) {
 	case *bytes.Buffer:
@@ -445,11 +459,13 @@ func (c *Client) readerCmd(i io.Reader) (r []*Response, err error) {
 	id := c.tc.Next()
 	c.tc.StartRequest(id)
 
+	c.conn.SetDeadline(time.Now().Add(c.cmdTimeout))
 	if err = c.tc.PrintfLine("%s stream SIZE %d", ScanStream, clen); err != nil {
 		c.tc.EndRequest(id)
 		return
 	}
 
+	c.conn.SetDeadline(time.Now().Add(c.cmdTimeout))
 	if _, err = io.Copy(c.tc.Writer.W, i); err != nil {
 		c.tc.EndRequest(id)
 		return
@@ -477,10 +493,12 @@ func (c *Client) streamCmd(fn string) (err error) {
 		return
 	}
 
+	c.conn.SetDeadline(time.Now().Add(c.cmdTimeout))
 	if err = c.tc.PrintfLine("%s %s SIZE %d", ScanStream, fn, stat.Size()); err != nil {
 		return
 	}
 
+	c.conn.SetDeadline(time.Now().Add(c.cmdTimeout))
 	if _, err = io.Copy(c.tc.Writer.W, f); err != nil {
 		return
 	}
@@ -499,6 +517,7 @@ func (c *Client) processResponse(n int) (r []*Response, err error) {
 	r = make([]*Response, 1)
 
 	for num := 0; num < n; num++ {
+		c.conn.SetDeadline(time.Now().Add(c.cmdTimeout))
 		lineb, err = c.tc.R.ReadBytes('\n')
 		if err != nil {
 			if err == io.EOF {
@@ -565,6 +584,7 @@ func NewClient(address string) (c *Client, err error) {
 		address:     address,
 		connTimeout: defaultTimeout,
 		connSleep:   defaultSleep,
+		cmdTimeout:  defaultCmdTimeout,
 	}
 
 	return
