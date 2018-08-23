@@ -10,12 +10,18 @@ Fprot - Golang F-Prot client
 package fprot
 
 import (
+	"bytes"
 	"go/build"
 	"io/ioutil"
 	"os"
 	"path"
+	"strings"
 	"testing"
 	"time"
+)
+
+const (
+	eicarVirus = `X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*`
 )
 
 type CommandTestKey struct {
@@ -70,7 +76,7 @@ func TestStatusCode(t *testing.T) {
 func TestBasics(t *testing.T) {
 	c, e := NewClient("")
 	if e != nil {
-		t.Errorf("An error should not be returned")
+		t.Fatalf("An error should not be returned")
 	}
 	if c.address != "127.0.0.1:10200" {
 		t.Errorf("Got %q want %q", c.address, "127.0.0.1:10200")
@@ -121,7 +127,7 @@ func TestBasics(t *testing.T) {
 func TestGetFiles(t *testing.T) {
 	dir, e := ioutil.TempDir("", "")
 	if e != nil {
-		t.Errorf("Temp directory creation failed")
+		t.Fatalf("Temp directory creation failed")
 	}
 	defer os.RemoveAll(dir)
 	if e = os.Chmod(dir, 0755); e != nil {
@@ -159,5 +165,293 @@ func TestGetFiles(t *testing.T) {
 	_, e = getFiles(fn)
 	if e == nil {
 		t.Errorf("An error should be returned")
+	}
+}
+
+func TestScan(t *testing.T) {
+	address := os.Getenv("FPROT_ADDRESS")
+	if address != "" {
+		c, e := NewClient(address)
+		if e != nil {
+			t.Fatalf("Error should not be returned: %s", e)
+		}
+		defer c.Close()
+		fn := "/var/spool/testfiles/install.log"
+		s, e := c.ScanFile(fn)
+		if e != nil {
+			t.Fatalf("Error should not be returned: %s", e)
+		}
+		if len(s) != 1 {
+			t.Fatalf("Expected 1 got %d", len(s))
+		}
+		if s[0].Filename != fn {
+			t.Fatalf("Filename expected %s got %s", fn, s[0].Filename)
+		}
+		if s[0].Infected {
+			t.Fatalf("Infected expected %t got %t", false, s[0].Infected)
+		}
+		if s[0].Signature != "" {
+			t.Fatalf("Filename expected %s got %s", "", s[0].Signature)
+		}
+		fn = "/var/spool/testfiles/eicar.txt"
+		s, e = c.ScanFile(fn)
+		if e != nil {
+			t.Fatalf("Error should not be returned: %s", e)
+		}
+		if len(s) != 1 {
+			t.Fatalf("Expected 1 got %d", len(s))
+		}
+		if s[0].Filename != fn {
+			t.Fatalf("Filename expected %s got %s", fn, s[0].Filename)
+		}
+		if !s[0].Infected {
+			t.Fatalf("Infected expected %t got %t", true, s[0].Infected)
+		}
+		if s[0].Signature != "EICAR_Test_File" {
+			t.Fatalf("Filename expected %s got %s", "EICAR_Test_File", s[0].Signature)
+		}
+	}
+}
+
+func TestScanFiles(t *testing.T) {
+	address := os.Getenv("FPROT_ADDRESS")
+	if address != "" {
+		c, e := NewClient(address)
+		if e != nil {
+			t.Fatalf("Error should not be returned: %s", e)
+		}
+		defer c.Close()
+		fns := []string{
+			"/var/spool/testfiles/eicar.txt",
+			"/var/spool/testfiles/eicar.tar.bz2",
+		}
+		s, e := c.ScanFiles(fns[0], fns[1])
+		if e != nil {
+			t.Fatalf("Error should not be returned: %s", e)
+		}
+		if len(s) != len(fns) {
+			t.Fatalf("Expected %d got %d", len(fns), len(s))
+		}
+		for _, r := range s {
+			if r.Filename != fns[0] && r.Filename != fns[1] {
+				t.Fatalf("Filename expected %s or %s got %s", fns[0], fns[1], r.Filename)
+			}
+			if !r.Infected {
+				t.Fatalf("Infected expected %t got %t", true, r.Infected)
+			}
+			if r.Signature != "EICAR_Test_File" {
+				t.Fatalf("Filename expected %s got %s", "EICAR_Test_File", r.Signature)
+			}
+		}
+	}
+}
+
+// func TestScanDir(t *testing.T) {
+// 	address := os.Getenv("FPROT_ADDRESS")
+// 	if address != "" {
+// 		c, e := NewClient(address)
+// 		if e != nil {
+// 			t.Fatalf("Error should not be returned: %s", e)
+// 		}
+// 		defer c.Close()
+// 		s, e := c.ScanDir("/var/spool/testfiles")
+// 		if e != nil {
+// 			t.Fatalf("Error should not be returned: %s", e)
+// 		}
+// 		if len(s) == 0 {
+// 			t.Fatalf("Expected > 1 got %d", len(s))
+// 		}
+// 	}
+// }
+
+func TestScanDirStream(t *testing.T) {
+	address := os.Getenv("FPROT_ADDRESS")
+	if address != "" {
+		c, e := NewClient(address)
+		if e != nil {
+			t.Fatalf("Error should not be returned: %s", e)
+		}
+		defer c.Close()
+		gopath := os.Getenv("GOPATH")
+		if gopath == "" {
+			gopath = build.Default.GOPATH
+		}
+		dn := path.Join(gopath, "src/github.com/baruwa-enterprise/fprot/examples/data")
+		s, e := c.ScanDirStream(dn)
+		if e != nil {
+			t.Fatalf("Error should not be returned: %s", e)
+		}
+		for _, r := range s {
+			if !r.Infected {
+				t.Fatalf("Infected expected %t got %t", true, r.Infected)
+			}
+			if r.Signature != "EICAR_Test_File" {
+				t.Fatalf("Filename expected %s got %s", "EICAR_Test_File", r.Signature)
+			}
+		}
+	}
+}
+
+func TestScanStream(t *testing.T) {
+	address := os.Getenv("FPROT_ADDRESS")
+	if address != "" {
+		c, e := NewClient(address)
+		if e != nil {
+			t.Fatalf("Error should not be returned: %s", e)
+		}
+		defer c.Close()
+		gopath := os.Getenv("GOPATH")
+		if gopath == "" {
+			gopath = build.Default.GOPATH
+		}
+		fn := path.Join(gopath, "src/github.com/baruwa-enterprise/fprot/examples/data/eicar.tar.bz2")
+		s, e := c.ScanStream(fn)
+		if e != nil {
+			t.Fatalf("Error should not be returned: %s", e)
+		}
+		for _, r := range s {
+			if !r.Infected {
+				t.Fatalf("Infected expected %t got %t", true, r.Infected)
+			}
+			if r.Signature != "EICAR_Test_File" {
+				t.Fatalf("Filename expected %s got %s", "EICAR_Test_File", r.Signature)
+			}
+		}
+	}
+}
+
+func TestScanReader(t *testing.T) {
+	address := os.Getenv("FPROT_ADDRESS")
+	if address != "" {
+		c, e := NewClient(address)
+		if e != nil {
+			t.Fatalf("Error should not be returned: %s", e)
+		}
+		defer c.Close()
+		gopath := os.Getenv("GOPATH")
+		if gopath == "" {
+			gopath = build.Default.GOPATH
+		}
+		fn := path.Join(gopath, "src/github.com/baruwa-enterprise/fprot/examples/data/eicar.tar.bz2")
+		f, e := os.Open(fn)
+		if e != nil {
+			t.Fatalf("Failed to open file: %s", fn)
+		}
+		defer f.Close()
+		s, e := c.ScanReader(f)
+		if e != nil {
+			t.Fatalf("Error should not be returned: %s", e)
+		}
+		for _, r := range s {
+			if !r.Infected {
+				t.Fatalf("Infected expected %t got %t", true, r.Infected)
+			}
+			if r.Signature != "EICAR_Test_File" {
+				t.Fatalf("Filename expected %s got %s", "EICAR_Test_File", r.Signature)
+			}
+		}
+	}
+}
+
+func TestScanReaderBytes(t *testing.T) {
+	address := os.Getenv("FPROT_ADDRESS")
+	if address != "" {
+		c, e := NewClient(address)
+		if e != nil {
+			t.Fatalf("Error should not be returned: %s", e)
+		}
+		defer c.Close()
+		m := []byte(eicarVirus)
+		f := bytes.NewReader(m)
+		s, e := c.ScanReader(f)
+		if e != nil {
+			t.Fatalf("Error should not be returned: %s", e)
+		}
+		for _, r := range s {
+			if !r.Infected {
+				t.Fatalf("Infected expected %t got %t", true, r.Infected)
+			}
+			if r.Signature != "EICAR_Test_File" {
+				t.Fatalf("Filename expected %s got %s", "EICAR_Test_File", r.Signature)
+			}
+		}
+	}
+}
+
+func TestScanReaderBuffer(t *testing.T) {
+	address := os.Getenv("FPROT_ADDRESS")
+	if address != "" {
+		c, e := NewClient(address)
+		if e != nil {
+			t.Fatalf("Error should not be returned: %s", e)
+		}
+		defer c.Close()
+		f := bytes.NewBufferString(eicarVirus)
+		s, e := c.ScanReader(f)
+		if e != nil {
+			t.Fatalf("Error should not be returned: %s", e)
+		}
+		for _, r := range s {
+			if !r.Infected {
+				t.Fatalf("Infected expected %t got %t", true, r.Infected)
+			}
+			if r.Signature != "EICAR_Test_File" {
+				t.Fatalf("Filename expected %s got %s", "EICAR_Test_File", r.Signature)
+			}
+		}
+	}
+}
+
+func TestScanReaderString(t *testing.T) {
+	address := os.Getenv("FPROT_ADDRESS")
+	if address != "" {
+		c, e := NewClient(address)
+		if e != nil {
+			t.Fatalf("Error should not be returned: %s", e)
+		}
+		defer c.Close()
+		f := strings.NewReader(eicarVirus)
+		s, e := c.ScanReader(f)
+		if e != nil {
+			t.Fatalf("Error should not be returned: %s", e)
+		}
+		for _, r := range s {
+			if !r.Infected {
+				t.Fatalf("Infected expected %t got %t", true, r.Infected)
+			}
+			if r.Signature != "EICAR_Test_File" {
+				t.Fatalf("Filename expected %s got %s", "EICAR_Test_File", r.Signature)
+			}
+		}
+	}
+}
+
+func TestInfo(t *testing.T) {
+	address := os.Getenv("FPROT_ADDRESS")
+	if address != "" {
+		c, e := NewClient(address)
+		if e != nil {
+			t.Fatalf("Error should not be returned: %s", e)
+		}
+		defer c.Close()
+		i, e := c.Info()
+		if e != nil {
+			t.Fatalf("Error should not be returned: %s", e)
+		}
+		if i.Engine == "" {
+			t.Errorf("i.Engine should be none empty string")
+		}
+		if i.Version == "" {
+			t.Errorf("i.Version should be none empty string")
+		}
+		if i.Protocol == "" {
+			t.Errorf("i.Protocol should be none empty string")
+		}
+		if i.Signature == "" {
+			t.Errorf("i.Signature should be none empty string")
+		}
+		if i.Uptime == "" {
+			t.Errorf("i.Uptime should be none empty string")
+		}
 	}
 }
