@@ -555,7 +555,7 @@ func (c *Client) processResponse(n int) (r []*Response, err error) {
 
 		if rs.StatusCode&(UserError|RestrictionError|SystemError|InternalError|SkipError|DisinfectError) != 0 {
 			if gerr == nil {
-				gerr = fmt.Errorf("ERROR: %s", rs.StatusCode)
+				gerr = fmt.Errorf("ERROR: %s", rs.Status)
 			}
 		}
 
