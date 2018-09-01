@@ -29,6 +29,10 @@ const (
 	defaultSleep      = 1 * time.Second
 	defaultCmdTimeout = 1 * time.Minute
 	chunkSize         = 1024
+	genericErr        = "ERROR: %s"
+	invalidRespErr    = "Invalid server response: %s"
+	pathNotDirErr     = "The path: %s is not a directory"
+	noSizeErr         = "The content length could not be determined"
 )
 
 const (
@@ -190,7 +194,7 @@ func (c *Client) Info() (i Info, err error) {
 
 	ms := helpRe.FindStringSubmatch(s)
 	if ms == nil {
-		err = fmt.Errorf("Invalid Server Response: %s", s)
+		err = fmt.Errorf(invalidRespErr, s)
 		return
 	}
 
@@ -452,7 +456,7 @@ func (c *Client) readerCmd(i io.Reader) (r []*Response, err error) {
 		}
 		clen = stat.Size()
 	default:
-		err = fmt.Errorf("The content length could not be determined")
+		err = fmt.Errorf(noSizeErr)
 		return
 	}
 
@@ -510,11 +514,8 @@ func (c *Client) streamCmd(fn string) (err error) {
 
 func (c *Client) processResponse(n int) (r []*Response, err error) {
 	var sc int
-	var seen bool
 	var gerr error
 	var lineb []byte
-
-	r = make([]*Response, 1)
 
 	for num := 0; num < n; num++ {
 		c.conn.SetDeadline(time.Now().Add(c.cmdTimeout))
@@ -529,7 +530,7 @@ func (c *Client) processResponse(n int) (r []*Response, err error) {
 
 		mb := responseRe.FindSubmatch(bytes.TrimRight(lineb, "\n"))
 		if mb == nil {
-			err = fmt.Errorf("Invalid Server Response: %s", lineb)
+			err = fmt.Errorf(invalidRespErr, lineb)
 			break
 		}
 
@@ -545,17 +546,12 @@ func (c *Client) processResponse(n int) (r []*Response, err error) {
 		rs.Filename = string(mb[4])
 		rs.ArchiveItem = string(mb[5])
 		rs.Raw = string(mb[0])
-		// fmt.Println("MB", "F", string(mb[0]), "[1]", string(mb[1]), "[2]", string(mb[2]), "[3]", string(mb[3]), "[4]", string(mb[4]), "[5]", string(mb[5]))
-		if !seen {
-			r[0] = &rs
-			seen = true
-		} else {
-			r = append(r, &rs)
-		}
+
+		r = append(r, &rs)
 
 		if rs.StatusCode&(UserError|RestrictionError|SystemError|InternalError|SkipError|DisinfectError) != 0 {
 			if gerr == nil {
-				gerr = fmt.Errorf("ERROR: %s", rs.Status)
+				gerr = fmt.Errorf(genericErr, rs.Status)
 			}
 		}
 
@@ -597,7 +593,7 @@ func getFiles(d string) (fl []string, err error) {
 	}
 
 	if !stat.IsDir() {
-		err = fmt.Errorf("The path: %s is not a directory", d)
+		err = fmt.Errorf(pathNotDirErr, d)
 		return
 	}
 
