@@ -210,6 +210,8 @@ func TestScan(t *testing.T) {
 		if s[0].Signature != "EICAR_Test_File" {
 			t.Fatalf("Filename expected %s got %s", "EICAR_Test_File", s[0].Signature)
 		}
+	} else {
+		t.Skip("skipping test; $FPROT_ADDRESS not set")
 	}
 }
 
@@ -243,6 +245,8 @@ func TestScanFiles(t *testing.T) {
 				t.Fatalf("Filename expected %s got %s", "EICAR_Test_File", r.Signature)
 			}
 		}
+	} else {
+		t.Skip("skipping test; $FPROT_ADDRESS not set")
 	}
 }
 
@@ -289,6 +293,8 @@ func TestScanDirStream(t *testing.T) {
 				t.Fatalf("Filename expected %s got %s", "EICAR_Test_File", r.Signature)
 			}
 		}
+	} else {
+		t.Skip("skipping test; $FPROT_ADDRESS not set")
 	}
 }
 
@@ -317,6 +323,8 @@ func TestScanStream(t *testing.T) {
 				t.Fatalf("Filename expected %s got %s", "EICAR_Test_File", r.Signature)
 			}
 		}
+	} else {
+		t.Skip("skipping test; $FPROT_ADDRESS not set")
 	}
 }
 
@@ -350,6 +358,8 @@ func TestScanReader(t *testing.T) {
 				t.Fatalf("Filename expected %s got %s", "EICAR_Test_File", r.Signature)
 			}
 		}
+	} else {
+		t.Skip("skipping test; $FPROT_ADDRESS not set")
 	}
 }
 
@@ -375,6 +385,8 @@ func TestScanReaderBytes(t *testing.T) {
 				t.Fatalf("Filename expected %s got %s", "EICAR_Test_File", r.Signature)
 			}
 		}
+	} else {
+		t.Skip("skipping test; $FPROT_ADDRESS not set")
 	}
 }
 
@@ -399,6 +411,8 @@ func TestScanReaderBuffer(t *testing.T) {
 				t.Fatalf("Filename expected %s got %s", "EICAR_Test_File", r.Signature)
 			}
 		}
+	} else {
+		t.Skip("skipping test; $FPROT_ADDRESS not set")
 	}
 }
 
@@ -423,6 +437,8 @@ func TestScanReaderString(t *testing.T) {
 				t.Fatalf("Filename expected %s got %s", "EICAR_Test_File", r.Signature)
 			}
 		}
+	} else {
+		t.Skip("skipping test; $FPROT_ADDRESS not set")
 	}
 }
 
@@ -453,5 +469,7 @@ func TestInfo(t *testing.T) {
 		if i.Uptime == "" {
 			t.Errorf("i.Uptime should be none empty string")
 		}
+	} else {
+		t.Skip("skipping test; $FPROT_ADDRESS not set")
 	}
 }
