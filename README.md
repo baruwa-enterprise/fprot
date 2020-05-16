@@ -3,6 +3,7 @@
 Golang Fprot Client
 
 [![Build Status](https://travis-ci.org/baruwa-enterprise/fprot.svg?branch=master)](https://travis-ci.org/baruwa-enterprise/fprot)
+[![Ci](https://github.com/baruwa-enterprise/fprot/workflows/Ci/badge.svg)](https://github.com/baruwa-enterprise/fprot/actions?query=workflow%3ACi)
 [![codecov](https://codecov.io/gh/baruwa-enterprise/fprot/branch/master/graph/badge.svg)](https://codecov.io/gh/baruwa-enterprise/fprot)
 [![Go Report Card](https://goreportcard.com/badge/github.com/baruwa-enterprise/fprot)](https://goreportcard.com/report/github.com/baruwa-enterprise/fprot)
 [![GoDoc](https://godoc.org/github.com/baruwa-enterprise/fprot?status.svg)](https://godoc.org/github.com/baruwa-enterprise/fprot)
