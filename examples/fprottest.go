@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"go/build"
@@ -41,7 +42,8 @@ func usage() {
 }
 
 func scanv(c *fprot.Client) {
-	s, e := c.ScanFile("/var/spool/testfiles/eicar.txt")
+	ctx := context.Background()
+	s, e := c.ScanFile(ctx, "/var/spool/testfiles/eicar.txt")
 	if e != nil {
 		log.Println("ERROR:", e)
 		return
@@ -52,12 +54,12 @@ func scanv(c *fprot.Client) {
 	}
 }
 
-func scan(c *fprot.Client, w *sync.WaitGroup) {
+func scan(ctx context.Context, c *fprot.Client, w *sync.WaitGroup) {
 	defer func() {
 		w.Done()
 	}()
 
-	s, e := c.ScanFile("/var/spool/testfiles/install.log")
+	s, e := c.ScanFile(ctx, "/var/spool/testfiles/install.log")
 	if e != nil {
 		log.Println("ERROR:", e)
 		return
@@ -69,12 +71,12 @@ func scan(c *fprot.Client, w *sync.WaitGroup) {
 	}
 }
 
-func scanFiles(c *fprot.Client, w *sync.WaitGroup) {
+func scanFiles(ctx context.Context, c *fprot.Client, w *sync.WaitGroup) {
 	defer func() {
 		w.Done()
 	}()
 
-	s, e := c.ScanFiles("/var/spool/testfiles/install.log", "/var/spool/testfiles/eicar.tar.bz2")
+	s, e := c.ScanFiles(ctx, "/var/spool/testfiles/install.log", "/var/spool/testfiles/eicar.tar.bz2")
 	if e != nil {
 		log.Println("ERROR:", e)
 		return
@@ -86,7 +88,7 @@ func scanFiles(c *fprot.Client, w *sync.WaitGroup) {
 	}
 }
 
-func scanDirStream(c *fprot.Client, w *sync.WaitGroup) {
+func scanDirStream(ctx context.Context, c *fprot.Client, w *sync.WaitGroup) {
 	defer func() {
 		w.Done()
 	}()
@@ -96,8 +98,7 @@ func scanDirStream(c *fprot.Client, w *sync.WaitGroup) {
 		gopath = build.Default.GOPATH
 	}
 	dn := path.Join(gopath, "src/github.com/baruwa-enterprise/fprot/examples/data")
-
-	s, e := c.ScanDirStream(dn)
+	s, e := c.ScanDirStream(ctx, dn)
 	if e != nil {
 		log.Println("ERROR:", e)
 		return
@@ -109,7 +110,7 @@ func scanDirStream(c *fprot.Client, w *sync.WaitGroup) {
 	}
 }
 
-func scanStream(c *fprot.Client, w *sync.WaitGroup) {
+func scanStream(ctx context.Context, c *fprot.Client, w *sync.WaitGroup) {
 	defer func() {
 		w.Done()
 	}()
@@ -119,8 +120,7 @@ func scanStream(c *fprot.Client, w *sync.WaitGroup) {
 		gopath = build.Default.GOPATH
 	}
 	fn := path.Join(gopath, "src/github.com/baruwa-enterprise/fprot/examples/data/eicar.tar.bz2")
-
-	s, e := c.ScanStream(fn)
+	s, e := c.ScanStream(ctx, fn)
 	if e != nil {
 		log.Println("ERROR:", e)
 		return
@@ -144,22 +144,23 @@ func main() {
 		log.Println(e)
 		return
 	}
-	defer c.Close()
+	ctx := context.Background()
+	defer c.Close(ctx)
 	c.SetConnTimeout(5 * time.Second)
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go scan(c, &wg)
+	go scan(ctx, c, &wg)
 	wg.Add(1)
-	go scanFiles(c, &wg)
+	go scanFiles(ctx, c, &wg)
 	wg.Add(1)
-	go scanDirStream(c, &wg)
+	go scanDirStream(ctx, c, &wg)
 	wg.Add(1)
-	go scanStream(c, &wg)
+	go scanStream(ctx, c, &wg)
 	wg.Wait()
 
 	// Run in main goroutine
 	scanv(c)
-	if s, e = c.Info(); e != nil {
+	if s, e = c.Info(ctx); e != nil {
 		log.Println(e)
 		return
 	}

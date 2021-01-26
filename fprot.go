@@ -1,4 +1,4 @@
-// Copyright (C) 2018 Andrew Colin Kissa <andrew@datopdog.io>
+// Copyright (C) 2018-2021 Andrew Colin Kissa <andrew@datopdog.io>
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this file,
 // You can obtain one at http://mozilla.org/MPL/2.0/.
@@ -11,6 +11,7 @@ package fprot
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -186,9 +187,9 @@ func (c *Client) SetConnSleep(s time.Duration) {
 }
 
 // Info returns server information
-func (c *Client) Info() (i Info, err error) {
+func (c *Client) Info(ctx context.Context) (i Info, err error) {
 	var s string
-	if s, err = c.basicCmd(Help); err != nil {
+	if s, err = c.basicCmd(ctx, Help); err != nil {
 		return
 	}
 
@@ -209,8 +210,8 @@ func (c *Client) Info() (i Info, err error) {
 }
 
 // Close closes the server connection
-func (c *Client) Close() (err error) {
-	_, err = c.basicCmd(Quit)
+func (c *Client) Close(ctx context.Context) (err error) {
+	_, err = c.basicCmd(ctx, Quit)
 
 	c.tc.Close()
 
@@ -218,54 +219,54 @@ func (c *Client) Close() (err error) {
 }
 
 // ScanFile submits a single file for scanning
-func (c *Client) ScanFile(f string) (r []*Response, err error) {
-	r, err = c.fileCmd(ScanFile, f)
+func (c *Client) ScanFile(ctx context.Context, f string) (r []*Response, err error) {
+	r, err = c.fileCmd(ctx, ScanFile, f)
 	return
 }
 
 // ScanFiles submits multiple files for scanning
-func (c *Client) ScanFiles(f ...string) (r []*Response, err error) {
-	r, err = c.fileCmd(ScanFile, f...)
+func (c *Client) ScanFiles(ctx context.Context, f ...string) (r []*Response, err error) {
+	r, err = c.fileCmd(ctx, ScanFile, f...)
 	return
 }
 
 // ScanStream submits a stream for scanning
-func (c *Client) ScanStream(f ...string) (r []*Response, err error) {
-	r, err = c.fileCmd(ScanStream, f...)
+func (c *Client) ScanStream(ctx context.Context, f ...string) (r []*Response, err error) {
+	r, err = c.fileCmd(ctx, ScanStream, f...)
 	return
 }
 
 // ScanReader submits an io reader via a stream for scanning
-func (c *Client) ScanReader(i io.Reader) (r []*Response, err error) {
-	r, err = c.readerCmd(i)
+func (c *Client) ScanReader(ctx context.Context, i io.Reader) (r []*Response, err error) {
+	r, err = c.readerCmd(ctx, i)
 	return
 }
 
 // ScanDir submits a directory for scanning
-func (c *Client) ScanDir(d string) (r []*Response, err error) {
+func (c *Client) ScanDir(ctx context.Context, d string) (r []*Response, err error) {
 	var fl []string
 
 	if fl, err = getFiles(d); err != nil {
 		return
 	}
 
-	r, err = c.fileCmd(ScanFile, fl...)
+	r, err = c.fileCmd(ctx, ScanFile, fl...)
 	return
 }
 
 // ScanDirStream submits a directory for scanning as streams
-func (c *Client) ScanDirStream(d string) (r []*Response, err error) {
+func (c *Client) ScanDirStream(ctx context.Context, d string) (r []*Response, err error) {
 	var fl []string
 
 	if fl, err = getFiles(d); err != nil {
 		return
 	}
 
-	r, err = c.fileCmd(ScanStream, fl...)
+	r, err = c.fileCmd(ctx, ScanStream, fl...)
 	return
 }
 
-func (c *Client) dial() (conn net.Conn, err error) {
+func (c *Client) dial(ctx context.Context) (conn net.Conn, err error) {
 	d := &net.Dialer{
 		Timeout: c.connTimeout,
 	}
@@ -281,12 +282,12 @@ func (c *Client) dial() (conn net.Conn, err error) {
 	return
 }
 
-func (c *Client) basicCmd(cmd Command) (r string, err error) {
+func (c *Client) basicCmd(ctx context.Context, cmd Command) (r string, err error) {
 	var id uint
 
 	c.m.Lock()
 	if c.tc == nil {
-		if c.conn, err = c.dial(); err != nil {
+		if c.conn, err = c.dial(ctx); err != nil {
 			c.m.Unlock()
 			return
 		}
@@ -324,7 +325,7 @@ func (c *Client) basicCmd(cmd Command) (r string, err error) {
 	return
 }
 
-func (c *Client) fileCmd(cmd Command, p ...string) (r []*Response, err error) {
+func (c *Client) fileCmd(ctx context.Context, cmd Command, p ...string) (r []*Response, err error) {
 	var n int
 
 	n = len(p)
@@ -336,7 +337,7 @@ func (c *Client) fileCmd(cmd Command, p ...string) (r []*Response, err error) {
 
 	c.m.Lock()
 	if c.tc == nil {
-		if c.conn, err = c.dial(); err != nil {
+		if c.conn, err = c.dial(ctx); err != nil {
 			c.m.Unlock()
 			return
 		}
@@ -425,13 +426,13 @@ func (c *Client) streamScan(n int, p ...string) (err error) {
 	return
 }
 
-func (c *Client) readerCmd(i io.Reader) (r []*Response, err error) {
+func (c *Client) readerCmd(ctx context.Context, i io.Reader) (r []*Response, err error) {
 	var clen int64
 	var stat os.FileInfo
 
 	c.m.Lock()
 	if c.tc == nil {
-		if c.conn, err = c.dial(); err != nil {
+		if c.conn, err = c.dial(ctx); err != nil {
 			c.m.Unlock()
 			return
 		}

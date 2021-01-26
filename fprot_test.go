@@ -1,4 +1,4 @@
-// Copyright (C) 2018 Andrew Colin Kissa <andrew@datopdog.io>
+// Copyright (C) 2018-2021 Andrew Colin Kissa <andrew@datopdog.io>
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this file,
 // You can obtain one at http://mozilla.org/MPL/2.0/.
@@ -11,6 +11,7 @@ package fprot
 
 import (
 	"bytes"
+	"context"
 	"go/build"
 	"io/ioutil"
 	"os"
@@ -175,9 +176,10 @@ func TestScan(t *testing.T) {
 		if e != nil {
 			t.Fatalf("Error should not be returned: %s", e)
 		}
-		defer c.Close()
+		ctx := context.Background()
+		defer c.Close(ctx)
 		fn := "/var/spool/testfiles/install.log"
-		s, e := c.ScanFile(fn)
+		s, e := c.ScanFile(ctx, fn)
 		if e != nil {
 			t.Fatalf("Error should not be returned: %s", e)
 		}
@@ -194,7 +196,7 @@ func TestScan(t *testing.T) {
 			t.Fatalf("Filename expected %s got %s", "", s[0].Signature)
 		}
 		fn = "/var/spool/testfiles/eicar.txt"
-		s, e = c.ScanFile(fn)
+		s, e = c.ScanFile(ctx, fn)
 		if e != nil {
 			t.Fatalf("Error should not be returned: %s", e)
 		}
@@ -222,12 +224,13 @@ func TestScanFiles(t *testing.T) {
 		if e != nil {
 			t.Fatalf("Error should not be returned: %s", e)
 		}
-		defer c.Close()
+		ctx := context.Background()
+		defer c.Close(ctx)
 		fns := []string{
 			"/var/spool/testfiles/eicar.txt",
 			"/var/spool/testfiles/eicar.tar.bz2",
 		}
-		s, e := c.ScanFiles(fns[0], fns[1])
+		s, e := c.ScanFiles(ctx, fns[0], fns[1])
 		if e != nil {
 			t.Fatalf("Error should not be returned: %s", e)
 		}
@@ -275,13 +278,14 @@ func TestScanDirStream(t *testing.T) {
 		if e != nil {
 			t.Fatalf("Error should not be returned: %s", e)
 		}
-		defer c.Close()
+		ctx := context.Background()
+		defer c.Close(ctx)
 		gopath := os.Getenv("GOPATH")
 		if gopath == "" {
 			gopath = build.Default.GOPATH
 		}
 		dn := path.Join(gopath, "src/github.com/baruwa-enterprise/fprot/examples/data")
-		s, e := c.ScanDirStream(dn)
+		s, e := c.ScanDirStream(ctx, dn)
 		if e != nil {
 			t.Fatalf("Error should not be returned: %s", e)
 		}
@@ -305,13 +309,14 @@ func TestScanStream(t *testing.T) {
 		if e != nil {
 			t.Fatalf("Error should not be returned: %s", e)
 		}
-		defer c.Close()
+		ctx := context.Background()
+		defer c.Close(ctx)
 		gopath := os.Getenv("GOPATH")
 		if gopath == "" {
 			gopath = build.Default.GOPATH
 		}
 		fn := path.Join(gopath, "src/github.com/baruwa-enterprise/fprot/examples/data/eicar.tar.bz2")
-		s, e := c.ScanStream(fn)
+		s, e := c.ScanStream(ctx, fn)
 		if e != nil {
 			t.Fatalf("Error should not be returned: %s", e)
 		}
@@ -335,7 +340,8 @@ func TestScanReader(t *testing.T) {
 		if e != nil {
 			t.Fatalf("Error should not be returned: %s", e)
 		}
-		defer c.Close()
+		ctx := context.Background()
+		defer c.Close(ctx)
 		gopath := os.Getenv("GOPATH")
 		if gopath == "" {
 			gopath = build.Default.GOPATH
@@ -346,7 +352,7 @@ func TestScanReader(t *testing.T) {
 			t.Fatalf("Failed to open file: %s", fn)
 		}
 		defer f.Close()
-		s, e := c.ScanReader(f)
+		s, e := c.ScanReader(ctx, f)
 		if e != nil {
 			t.Fatalf("Error should not be returned: %s", e)
 		}
@@ -370,10 +376,11 @@ func TestScanReaderBytes(t *testing.T) {
 		if e != nil {
 			t.Fatalf("Error should not be returned: %s", e)
 		}
-		defer c.Close()
+		ctx := context.Background()
+		defer c.Close(ctx)
 		m := []byte(eicarVirus)
 		f := bytes.NewReader(m)
-		s, e := c.ScanReader(f)
+		s, e := c.ScanReader(ctx, f)
 		if e != nil {
 			t.Fatalf("Error should not be returned: %s", e)
 		}
@@ -397,9 +404,10 @@ func TestScanReaderBuffer(t *testing.T) {
 		if e != nil {
 			t.Fatalf("Error should not be returned: %s", e)
 		}
-		defer c.Close()
+		ctx := context.Background()
+		defer c.Close(ctx)
 		f := bytes.NewBufferString(eicarVirus)
-		s, e := c.ScanReader(f)
+		s, e := c.ScanReader(ctx, f)
 		if e != nil {
 			t.Fatalf("Error should not be returned: %s", e)
 		}
@@ -423,9 +431,10 @@ func TestScanReaderString(t *testing.T) {
 		if e != nil {
 			t.Fatalf("Error should not be returned: %s", e)
 		}
-		defer c.Close()
+		ctx := context.Background()
+		defer c.Close(ctx)
 		f := strings.NewReader(eicarVirus)
-		s, e := c.ScanReader(f)
+		s, e := c.ScanReader(ctx, f)
 		if e != nil {
 			t.Fatalf("Error should not be returned: %s", e)
 		}
@@ -449,8 +458,9 @@ func TestInfo(t *testing.T) {
 		if e != nil {
 			t.Fatalf("Error should not be returned: %s", e)
 		}
-		defer c.Close()
-		i, e := c.Info()
+		ctx := context.Background()
+		defer c.Close(ctx)
+		i, e := c.Info(ctx)
 		if e != nil {
 			t.Fatalf("Error should not be returned: %s", e)
 		}
