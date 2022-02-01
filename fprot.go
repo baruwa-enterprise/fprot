@@ -79,6 +79,10 @@ var (
 	responseRe = regexp.MustCompile(`^(?P<statuscode>[0-9]+)\s<(?P<status>[^:]+)(?::\s+(?P<signature>.+?))?>\s?(?P<filename>.+?)?(?:->(?P<aname>.*))?$`)
 )
 
+type readerWithLen interface {
+	Len() int
+}
+
 // StatusCode represents the returned status code
 type StatusCode int
 
@@ -450,11 +454,7 @@ func (c *Client) readerCmd(ctx context.Context, i io.Reader) (r []*Response, err
 	defer c.conn.SetDeadline(ZeroTime)
 
 	switch v := i.(type) {
-	case *bytes.Buffer:
-		clen = int64(v.Len())
-	case *bytes.Reader:
-		clen = int64(v.Len())
-	case *strings.Reader:
+	case readerWithLen:
 		clen = int64(v.Len())
 	case *os.File:
 		stat, err = v.Stat()
